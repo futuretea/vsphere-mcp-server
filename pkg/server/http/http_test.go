@@ -6,20 +6,21 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
-	"example.invalid/mcp-template-module-placeholder/pkg/core/config"
-	internalhttp "example.invalid/mcp-template-module-placeholder/pkg/server/http"
-	mcpserver "example.invalid/mcp-template-module-placeholder/pkg/server/mcp"
-	"example.invalid/mcp-template-module-placeholder/pkg/toolset"
-	"example.invalid/mcp-template-module-placeholder/pkg/toolset/example"
+	"github.com/futuretea/vsphere-mcp-server/pkg/core/config"
+	internalhttp "github.com/futuretea/vsphere-mcp-server/pkg/server/http"
+	mcpserver "github.com/futuretea/vsphere-mcp-server/pkg/server/mcp"
+	"github.com/futuretea/vsphere-mcp-server/pkg/toolset"
+	"github.com/futuretea/vsphere-mcp-server/pkg/toolset/vsphere"
 )
 
 func TestHealthz(t *testing.T) {
 	mcpServer, err := mcpserver.NewServer(mcpserver.Configuration{
 		StaticConfig: &config.StaticConfig{LogLevel: "info"},
-		Toolsets:     []toolset.Toolset{&example.Toolset{}},
+		Toolsets:     []toolset.Toolset{vsphere.NewToolset(nil, false, false)},
 	})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
@@ -68,7 +69,7 @@ func TestHealthz(t *testing.T) {
 func TestServeListenerShutdown(t *testing.T) {
 	mcpServer, err := mcpserver.NewServer(mcpserver.Configuration{
 		StaticConfig: &config.StaticConfig{LogLevel: "info"},
-		Toolsets:     []toolset.Toolset{&example.Toolset{}},
+		Toolsets:     []toolset.Toolset{vsphere.NewToolset(nil, false, false)},
 	})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
@@ -110,6 +111,23 @@ func TestServeListenerShutdown(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("ServeListener did not exit after cancel")
+	}
+}
+
+func TestServeListenerRejectsRemoteAddress(t *testing.T) {
+	listener, err := net.Listen("tcp", "0.0.0.0:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	defer func() { _ = listener.Close() }()
+	mcpServer, err := mcpserver.NewServer(mcpserver.Configuration{StaticConfig: &config.StaticConfig{LogLevel: "info"}, Toolsets: []toolset.Toolset{vsphere.NewToolset(nil, false, false)}})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	defer mcpServer.Close()
+	err = internalhttp.ServeListener(context.Background(), mcpServer, &config.StaticConfig{LogLevel: "info"}, listener)
+	if err == nil || !strings.Contains(err.Error(), "loopback") {
+		t.Fatalf("ServeListener error = %v", err)
 	}
 }
 

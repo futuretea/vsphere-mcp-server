@@ -1,37 +1,23 @@
-# MCP Server Template
+# vSphere MCP Server
 
 [English](README.md)
 
-可 clone 的最小 MCP（Model Context Protocol）server 骨架。同一二进制同时提供给 AI 助手用的 **MCP server**，以及给人用的小型 **CLI**。内置示例工具 `echo` / `ping`。
-
-## 初始化派生仓库
-
-从此模板创建仓库后，先替换明确的占位符，再开始构建：
-
-```bash
-./scripts/init-template.sh \
-  --module github.com/acme/my-mcp \
-  --binary my-mcp \
-  --npm-package @acme/my-mcp \
-  --image ghcr.io/acme/my-mcp
-```
-
-该命令会生成构建工作流。只有项目已准备发布时才加 `--with-release`；它会额外生成 npm 和 Docker 的 tag 发布工作流。镜像为 `ghcr.io/...` 时，加 `--use-ghcr` 可使用 `GITHUB_TOKEN` 发布到 GitHub Container Registry，无需 Docker registry 凭证。其他 registry 仍需配置凭证。启用发布前，请先配置 npm registry。使用 `--dry-run` 可只查看计划，不修改文件。
+面向单个已配置 ESXi 或 vCenter 目标的只读 MCP（Model Context Protocol）server。共同 API 基线支持 ESXi/vCenter 6.7、7.0.3 与 8.x；目标广告相应能力时提供 vCenter 专属库存与告警查询。
 
 ## 快速开始
 
 ```bash
 # 需要 Go 1.25+（见 .tool-versions）
 make build
-./bin/mcp-template-binary-placeholder version
+./bin/vsphere-mcp-server version
 
 # 启动 MCP server（默认 stdio）
-./bin/mcp-template-binary-placeholder mcp
+./bin/vsphere-mcp-server mcp --config config.example.yaml
 
 # 不经过 MCP 客户端，直接用 CLI 列工具 / 调工具
-./bin/mcp-template-binary-placeholder tools list
-./bin/mcp-template-binary-placeholder tools call echo --params '{"message":"hello"}'
-./bin/mcp-template-binary-placeholder tools call ping --params '{}'
+./bin/vsphere-mcp-server tools list
+./bin/vsphere-mcp-server tools describe vsphere_list_inventory
+./bin/vsphere-mcp-server tools call vsphere_list_inventory --config config.example.yaml --params '{"kind":"vm"}'
 ```
 
 ## 功能
@@ -39,29 +25,27 @@ make build
 - **子命令 CLI**：`mcp` 才启动 server；`tools` / `version` / `completion` 独立
 - **多传输**：stdio、Streamable HTTP、SSE
 - **工具过滤**：`--enabled-tools`、`--disabled-tools`、`--enable-domains`、`--disable-domains`
-- **工程化默认项**：Makefile、Dockerfile、GitHub Actions CI、golangci-lint、MIT License
+- **只读目标访问**：库存、指标、任务，以及按能力注册的事件和告警
 
 ## CLI 命令
 
 | 命令 | 作用 |
 |------|------|
-| `mcp-template-binary-placeholder mcp` | 启动 MCP server（stdio 或 HTTP） |
-| `mcp-template-binary-placeholder tools list` | 列出已启用工具 |
-| `mcp-template-binary-placeholder tools describe <name>` | 查看工具 schema |
-| `mcp-template-binary-placeholder tools call <name>` | 用 JSON 参数调用工具 |
-| `mcp-template-binary-placeholder version` | 打印构建信息 |
-| `mcp-template-binary-placeholder completion <shell>` | 生成 shell 补全脚本 |
+| `vsphere-mcp-server mcp` | 启动 MCP server（stdio 或 HTTP） |
+| `vsphere-mcp-server tools list` | 列出已启用工具 |
+| `vsphere-mcp-server tools describe <name>` | 查看工具 schema |
+| `vsphere-mcp-server tools call <name>` | 用 JSON 参数调用工具 |
+| `vsphere-mcp-server version` | 打印构建信息 |
+| `vsphere-mcp-server completion <shell>` | 生成 shell 补全脚本 |
 
 ### tools 示例
 
 ```bash
-./bin/mcp-template-binary-placeholder tools list
-./bin/mcp-template-binary-placeholder tools list --json
-./bin/mcp-template-binary-placeholder tools describe echo
-./bin/mcp-template-binary-placeholder tools describe echo --json
-./bin/mcp-template-binary-placeholder tools call echo --params '{"message":"hello"}'
-echo '{"message":"hello"}' | ./bin/mcp-template-binary-placeholder tools call echo --params-file -
-./bin/mcp-template-binary-placeholder tools call ping --params '{}'
+./bin/vsphere-mcp-server tools list
+./bin/vsphere-mcp-server tools list --json
+./bin/vsphere-mcp-server tools describe vsphere_list_inventory
+./bin/vsphere-mcp-server tools describe vsphere_query_metrics --json
+./bin/vsphere-mcp-server tools call vsphere_list_events --config config.example.yaml --params '{"limit":25}'
 ```
 
 ## MCP 传输模式
@@ -69,7 +53,7 @@ echo '{"message":"hello"}' | ./bin/mcp-template-binary-placeholder tools call ec
 ### Stdio（默认）
 
 ```bash
-./bin/mcp-template-binary-placeholder mcp
+./bin/vsphere-mcp-server mcp --config config.example.yaml
 ```
 
 Cursor / Claude Desktop 配置示例：
@@ -77,9 +61,9 @@ Cursor / Claude Desktop 配置示例：
 ```json
 {
   "mcpServers": {
-    "mcp-template-binary-placeholder": {
-      "command": "/absolute/path/to/bin/mcp-template-binary-placeholder",
-      "args": ["mcp"]
+    "vsphere-mcp-server": {
+      "command": "/absolute/path/to/bin/vsphere-mcp-server",
+      "args": ["mcp", "--config", "/absolute/path/to/config.yaml"]
     }
   }
 }
@@ -88,7 +72,7 @@ Cursor / Claude Desktop 配置示例：
 ### Streamable HTTP
 
 ```bash
-./bin/mcp-template-binary-placeholder mcp --port 8080
+./bin/vsphere-mcp-server mcp --config config.example.yaml --port 8080
 curl -s http://127.0.0.1:8080/healthz
 ```
 
@@ -97,7 +81,7 @@ curl -s http://127.0.0.1:8080/healthz
 ```json
 {
   "mcpServers": {
-    "mcp-template-binary-placeholder": {
+    "vsphere-mcp-server": {
       "url": "http://127.0.0.1:8080/mcp"
     }
   }
@@ -116,7 +100,7 @@ curl -s http://127.0.0.1:8080/healthz
 | `/message` | SSE message endpoint |
 
 ```bash
-./bin/mcp-template-binary-placeholder mcp --port 8080 --sse-base-url http://127.0.0.1:8080
+./bin/vsphere-mcp-server mcp --config config.example.yaml --port 8080 --sse-base-url http://127.0.0.1:8080
 ```
 
 ### Docker
@@ -125,14 +109,13 @@ curl -s http://127.0.0.1:8080/healthz
 # 构建
 make docker
 
-# Stdio（默认 ENTRYPOINT 为 mcp-template-binary-placeholder mcp）
-docker run -i --rm mcp-template-image-placeholder:dev
+# Stdio（默认 ENTRYPOINT 为 vsphere-mcp-server mcp）
+docker run -i --rm -v /absolute/path/to/config.yaml:/etc/vsphere-mcp/config.yaml:ro ghcr.io/futuretea/vsphere-mcp-server:dev --config /etc/vsphere-mcp/config.yaml
 
-# HTTP
-docker run --rm -p 8080:8080 mcp-template-image-placeholder:dev --port 8080 --listen 0.0.0.0
 ```
 
-HTTP / SSE **无鉴权、无 TLS**。默认 `--listen 127.0.0.1`。仅在受信网络使用；对外暴露时请自行加反向代理与认证。
+HTTP / SSE **无鉴权、无 TLS**，并且仅允许监听 loopback。若要对外暴露，请在前面放置带鉴权和 TLS 的反向代理。
+Docker 镜像当前仅支持 stdio；在配置好容器认证代理边界前，请从主机 loopback 运行 HTTP/SSE。
 
 ## 配置
 
@@ -146,6 +129,10 @@ HTTP / SSE **无鉴权、无 TLS**。默认 `--listen 127.0.0.1`。仅在受信�
 | `MCP_PORT` | HTTP 端口（`0` = stdio） | `0` |
 | `MCP_LISTEN` | HTTP 监听地址 | `127.0.0.1` |
 | `MCP_SSE_BASE_URL` | 对外 SSE base URL | `""` |
+| `MCP_VSPHERE_ENDPOINT` | ESXi 或 vCenter HTTPS 地址 | 未设置 |
+| `MCP_VSPHERE_USERNAME` | 只读目标用户名 | 未设置 |
+| `MCP_VSPHERE_PASSWORD` | 目标密码 | 未设置 |
+| `MCP_VSPHERE_INSECURE` | 跳过 TLS 证书校验 | `false` |
 
 ### 配置文件
 
@@ -160,10 +147,15 @@ enabled_tools: []
 disabled_tools: []
 enabled_domains: []
 disabled_domains: []
+vsphere:
+  endpoint: "https://vcenter.example.invalid/sdk"
+  username: "readonly-user"
+  password: ""
+  insecure: false
 ```
 
 ```bash
-./bin/mcp-template-binary-placeholder mcp --config config.example.yaml --port 8080
+./bin/vsphere-mcp-server mcp --config config.example.yaml --port 8080
 ```
 
 ## 目录结构
@@ -175,17 +167,16 @@ pkg/core/                # config / logging / version
 pkg/server/mcp/          # MCP 注册与 transport
 pkg/server/http/         # HTTP / SSE / healthz
 pkg/toolset/             # Toolset 接口与过滤
-pkg/toolset/example/     # 示例 tools（替换为你的业务）
+pkg/toolset/vsphere/     # 公开的只读 vSphere tool schema
+pkg/vsphere/             # 基于 govmomi 的只读查询
 .github/workflows/       # CI
 scripts/init-template.sh # 派生仓库初始化脚本
 templates/               # 由初始化脚本复制的 CI 与发布骨架
 ```
 
-## 扩展自己的 tools
+## 兼容性与限制
 
-1. 在 `pkg/toolset/<your-domain>/` 实现 `toolset.Toolset`。
-2. 在 `internal/cmd/root.go` 的 `defaultToolsets()` 中挂载。
-3. 用 `--enabled-tools` / `--enable-domains` 控制暴露面。
+共同查询刻意只使用 vSphere 6.7 已具备的 API。vCenter 专属库存类型为 `datacenter`、`cluster`、`resource_pool`、`folder` 和 `distributed_portgroup`。MCP server 启动时探测事件查询与 `AlarmManager`，仅在目标支持时暴露 `vsphere_list_events` 和 `vsphere_list_alarms`。本地测试使用 govmomi 模拟器，不能代替对已授权真实 6.7、7.0.3 或 8.x 环境的验证。
 
 ## 开发
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"example.invalid/mcp-template-module-placeholder/internal/cmd"
+	"github.com/futuretea/vsphere-mcp-server/internal/cmd"
 )
 
 func TestRootHelpListsSubcommands(t *testing.T) {
@@ -48,18 +48,16 @@ func TestToolsListAndCall(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("tools list: %v", err)
 	}
-	if !strings.Contains(out.String(), "echo") || !strings.Contains(out.String(), "ping") {
-		t.Fatalf("tools list missing echo/ping:\n%s", out.String())
+	if !strings.Contains(out.String(), "vsphere_list_inventory") || !strings.Contains(out.String(), "vsphere_query_metrics") {
+		t.Fatalf("tools list missing vSphere queries:\n%s", out.String())
 	}
 
 	out.Reset()
 	root = cmd.NewRootCommand(cmd.IOStreams{Out: &out, ErrOut: &out})
-	root.SetArgs([]string{"tools", "call", "echo", "--params", `{"message":"hi"}`})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("tools call: %v", err)
-	}
-	if strings.TrimSpace(out.String()) != "hi" {
-		t.Fatalf("echo result = %q", out.String())
+	root.SetArgs([]string{"tools", "call", "vsphere_list_inventory", "--params", `{"kind":"vm"}`})
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("unconfigured tools call error = %v", err)
 	}
 }
 
@@ -70,7 +68,7 @@ func TestVersionCommand(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("version: %v", err)
 	}
-	if !strings.Contains(out.String(), "mcp-template-binary-placeholder") {
+	if !strings.Contains(out.String(), "vsphere-mcp-server") {
 		t.Fatalf("unexpected version output: %q", out.String())
 	}
 }
@@ -95,7 +93,7 @@ func TestToolsUnknownTool(t *testing.T) {
 func TestToolsRejectsNullParams(t *testing.T) {
 	var out bytes.Buffer
 	root := cmd.NewRootCommand(cmd.IOStreams{Out: &out, ErrOut: &out})
-	root.SetArgs([]string{"tools", "call", "ping", "--params", "null"})
+	root.SetArgs([]string{"tools", "call", "vsphere_list_tasks", "--params", "null"})
 	err := root.Execute()
 	if err == nil || !strings.Contains(err.Error(), "expected an object") {
 		t.Fatalf("expected JSON object error, got %v", err)
@@ -112,8 +110,8 @@ func TestCommandsReturnOutputErrors(t *testing.T) {
 		{name: "completion install", args: []string{"completion", "install"}},
 		{name: "version", args: []string{"version"}},
 		{name: "tools list", args: []string{"tools", "list"}},
-		{name: "tools describe", args: []string{"tools", "describe", "echo"}},
-		{name: "tools call", args: []string{"tools", "call", "echo", "--params", `{"message":"hi"}`}},
+		{name: "tools describe", args: []string{"tools", "describe", "vsphere_list_inventory"}},
+		{name: "tools describe duplicate", args: []string{"tools", "describe", "vsphere_list_inventory"}},
 	}
 
 	for _, tt := range tests {

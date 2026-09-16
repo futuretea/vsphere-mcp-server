@@ -1,43 +1,23 @@
-# MCP Server Template
+# vSphere MCP Server
 
 [中文文档](README.zh.md)
 
-Cloneable minimal MCP (Model Context Protocol) server skeleton with a dual-mode binary: **MCP server** for AI assistants and a small **CLI** for humans. Ships with example tools `echo` / `ping`.
-
-## Initialize a derived repository
-
-After creating a repository from this template, initialize its explicit
-placeholders before building:
-
-```bash
-./scripts/init-template.sh \
-  --module github.com/acme/my-mcp \
-  --binary my-mcp \
-  --npm-package @acme/my-mcp \
-  --image ghcr.io/acme/my-mcp
-```
-
-This creates the build workflow. Add `--with-release` only when the project is
-ready to publish; it also creates npm and Docker tag-release workflows. Add
-`--use-ghcr` with a `ghcr.io/...` image to publish to GitHub Container Registry
-using `GITHUB_TOKEN`, without Docker registry secrets. Other registries continue
-to require their credentials. Configure the npm registry before enabling a release.
-Use `--dry-run` to inspect the planned initialization without changing files.
+Read-only MCP (Model Context Protocol) server for one configured ESXi or vCenter target. It supports ESXi/vCenter 6.7, 7.0.3, and 8.x through their common API baseline, plus vCenter-only inventory and alarm capabilities when advertised by the target.
 
 ## Quick start
 
 ```bash
 # Requires Go 1.25+ (see .tool-versions)
 make build
-./bin/mcp-template-binary-placeholder version
+./bin/vsphere-mcp-server version
 
 # Start MCP server (stdio, default)
-./bin/mcp-template-binary-placeholder mcp
+./bin/vsphere-mcp-server mcp --config config.example.yaml
 
 # List / call tools from the CLI (no MCP client required)
-./bin/mcp-template-binary-placeholder tools list
-./bin/mcp-template-binary-placeholder tools call echo --params '{"message":"hello"}'
-./bin/mcp-template-binary-placeholder tools call ping --params '{}'
+./bin/vsphere-mcp-server tools list
+./bin/vsphere-mcp-server tools describe vsphere_list_inventory
+./bin/vsphere-mcp-server tools call vsphere_list_inventory --config config.example.yaml --params '{"kind":"vm"}'
 ```
 
 ## Features
@@ -45,29 +25,27 @@ make build
 - **Subcommand CLI**: `mcp` starts the server; `tools` / `version` / `completion` are separate commands
 - **Multi-transport**: stdio, Streamable HTTP, and SSE
 - **Tool filtering**: `--enabled-tools`, `--disabled-tools`, `--enable-domains`, `--disable-domains`
-- **Engineering defaults**: Makefile, Dockerfile, GitHub Actions CI, golangci-lint config, MIT license
+- **Read-only target access**: inventory, metrics, and tasks; events and alarms are capability-gated
 
 ## CLI commands
 
 | Command | Purpose |
 |---------|---------|
-| `mcp-template-binary-placeholder mcp` | Start the MCP server (stdio or HTTP) |
-| `mcp-template-binary-placeholder tools list` | List enabled tools |
-| `mcp-template-binary-placeholder tools describe <name>` | Show tool schema |
-| `mcp-template-binary-placeholder tools call <name>` | Invoke a tool with JSON params |
-| `mcp-template-binary-placeholder version` | Print build metadata |
-| `mcp-template-binary-placeholder completion <shell>` | Generate shell completion |
+| `vsphere-mcp-server mcp` | Start the MCP server (stdio or HTTP) |
+| `vsphere-mcp-server tools list` | List enabled tools |
+| `vsphere-mcp-server tools describe <name>` | Show tool schema |
+| `vsphere-mcp-server tools call <name>` | Invoke a tool with JSON params |
+| `vsphere-mcp-server version` | Print build metadata |
+| `vsphere-mcp-server completion <shell>` | Generate shell completion |
 
 ### Tools examples
 
 ```bash
-./bin/mcp-template-binary-placeholder tools list
-./bin/mcp-template-binary-placeholder tools list --json
-./bin/mcp-template-binary-placeholder tools describe echo
-./bin/mcp-template-binary-placeholder tools describe echo --json
-./bin/mcp-template-binary-placeholder tools call echo --params '{"message":"hello"}'
-echo '{"message":"hello"}' | ./bin/mcp-template-binary-placeholder tools call echo --params-file -
-./bin/mcp-template-binary-placeholder tools call ping --params '{}'
+./bin/vsphere-mcp-server tools list
+./bin/vsphere-mcp-server tools list --json
+./bin/vsphere-mcp-server tools describe vsphere_list_inventory
+./bin/vsphere-mcp-server tools describe vsphere_query_metrics --json
+./bin/vsphere-mcp-server tools call vsphere_list_events --config config.example.yaml --params '{"limit":25}'
 ```
 
 ## MCP transports
@@ -75,7 +53,7 @@ echo '{"message":"hello"}' | ./bin/mcp-template-binary-placeholder tools call ec
 ### Stdio (default)
 
 ```bash
-./bin/mcp-template-binary-placeholder mcp
+./bin/vsphere-mcp-server mcp --config config.example.yaml
 ```
 
 Cursor / Claude Desktop style config:
@@ -83,9 +61,9 @@ Cursor / Claude Desktop style config:
 ```json
 {
   "mcpServers": {
-    "mcp-template-binary-placeholder": {
-      "command": "/absolute/path/to/bin/mcp-template-binary-placeholder",
-      "args": ["mcp"]
+    "vsphere-mcp-server": {
+      "command": "/absolute/path/to/bin/vsphere-mcp-server",
+      "args": ["mcp", "--config", "/absolute/path/to/config.yaml"]
     }
   }
 }
@@ -94,7 +72,7 @@ Cursor / Claude Desktop style config:
 ### Streamable HTTP
 
 ```bash
-./bin/mcp-template-binary-placeholder mcp --port 8080
+./bin/vsphere-mcp-server mcp --config config.example.yaml --port 8080
 curl -s http://127.0.0.1:8080/healthz
 ```
 
@@ -103,7 +81,7 @@ Client config example:
 ```json
 {
   "mcpServers": {
-    "mcp-template-binary-placeholder": {
+    "vsphere-mcp-server": {
       "url": "http://127.0.0.1:8080/mcp"
     }
   }
@@ -122,7 +100,7 @@ Same process as HTTP mode. Endpoints:
 | `/message` | SSE message endpoint |
 
 ```bash
-./bin/mcp-template-binary-placeholder mcp --port 8080 --sse-base-url http://127.0.0.1:8080
+./bin/vsphere-mcp-server mcp --config config.example.yaml --port 8080 --sse-base-url http://127.0.0.1:8080
 ```
 
 ### Docker
@@ -131,14 +109,13 @@ Same process as HTTP mode. Endpoints:
 # Build
 make docker
 
-# Stdio (default ENTRYPOINT is `mcp-template-binary-placeholder mcp`)
-docker run -i --rm mcp-template-image-placeholder:dev
+# Stdio (default ENTRYPOINT is `vsphere-mcp-server mcp`)
+docker run -i --rm -v /absolute/path/to/config.yaml:/etc/vsphere-mcp/config.yaml:ro ghcr.io/futuretea/vsphere-mcp-server:dev --config /etc/vsphere-mcp/config.yaml
 
-# HTTP
-docker run --rm -p 8080:8080 mcp-template-image-placeholder:dev --port 8080 --listen 0.0.0.0
 ```
 
-HTTP / SSE have **no auth and no TLS**. Default `--listen 127.0.0.1`. Use only on trusted networks; put a reverse proxy in front if you expose the port.
+HTTP / SSE have **no auth and no TLS** and are restricted to loopback. Put an authenticated TLS reverse proxy in front if you expose the port.
+The Docker image currently supports stdio only; run HTTP/SSE from the host loopback until an authenticated container proxy boundary is configured.
 
 ## Configuration
 
@@ -152,6 +129,10 @@ Priority: **flags > environment variables > config file > defaults**.
 | `MCP_PORT` | HTTP port (`0` = stdio) | `0` |
 | `MCP_LISTEN` | HTTP listen host | `127.0.0.1` |
 | `MCP_SSE_BASE_URL` | Public SSE base URL | `""` |
+| `MCP_VSPHERE_ENDPOINT` | ESXi or vCenter HTTPS endpoint | unset |
+| `MCP_VSPHERE_USERNAME` | Read-only target username | unset |
+| `MCP_VSPHERE_PASSWORD` | Target password | unset |
+| `MCP_VSPHERE_INSECURE` | Skip TLS certificate verification | `false` |
 
 ### Config file
 
@@ -166,10 +147,15 @@ enabled_tools: []
 disabled_tools: []
 enabled_domains: []
 disabled_domains: []
+vsphere:
+  endpoint: "https://vcenter.example.invalid/sdk"
+  username: "readonly-user"
+  password: ""
+  insecure: false
 ```
 
 ```bash
-./bin/mcp-template-binary-placeholder mcp --config config.example.yaml --port 8080
+./bin/vsphere-mcp-server mcp --config config.example.yaml --port 8080
 ```
 
 ## Project layout
@@ -181,17 +167,16 @@ pkg/core/                 # config / logging / version
 pkg/server/mcp/           # MCP registration and transports
 pkg/server/http/          # HTTP / SSE / healthz
 pkg/toolset/              # Toolset interface and filters
-pkg/toolset/example/      # sample tools (replace with your domain)
+pkg/toolset/vsphere/      # public read-only vSphere tool schemas
+pkg/vsphere/              # govmomi-backed read-only queries
 .github/workflows/        # CI
 scripts/init-template.sh  # derived-project initializer
 templates/                # CI and release scaffolding copied by the initializer
 ```
 
-## Extend with your own tools
+## Compatibility and limits
 
-1. Add `pkg/toolset/<your-domain>/` implementing `toolset.Toolset`.
-2. Register it in `internal/cmd/root.go` via `defaultToolsets()`.
-3. Control exposure with `--enabled-tools` / `--enable-domains`.
+The common queries intentionally use APIs available in vSphere 6.7. vCenter-only inventory kinds are `datacenter`, `cluster`, `resource_pool`, `folder`, and `distributed_portgroup`. The MCP server probes event queries and `AlarmManager` at startup; it exposes `vsphere_list_events` and `vsphere_list_alarms` only when the target supports them. Local tests use govmomi simulators; they do not replace validation against an authorized real 6.7, 7.0.3, or 8.x environment.
 
 ## Development
 

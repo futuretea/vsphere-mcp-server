@@ -7,16 +7,16 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
-	"example.invalid/mcp-template-module-placeholder/pkg/core/config"
-	mcpserver "example.invalid/mcp-template-module-placeholder/pkg/server/mcp"
-	"example.invalid/mcp-template-module-placeholder/pkg/toolset"
-	"example.invalid/mcp-template-module-placeholder/pkg/toolset/example"
+	"github.com/futuretea/vsphere-mcp-server/pkg/core/config"
+	mcpserver "github.com/futuretea/vsphere-mcp-server/pkg/server/mcp"
+	"github.com/futuretea/vsphere-mcp-server/pkg/toolset"
+	"github.com/futuretea/vsphere-mcp-server/pkg/toolset/vsphere"
 )
 
 func TestNewServerRegistersExampleTools(t *testing.T) {
 	server, err := mcpserver.NewServer(mcpserver.Configuration{
 		StaticConfig: &config.StaticConfig{LogLevel: "info"},
-		Toolsets:     []toolset.Toolset{&example.Toolset{}},
+		Toolsets:     []toolset.Toolset{vsphere.NewToolset(nil, false, false)},
 	})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
@@ -27,15 +27,15 @@ func TestNewServerRegistersExampleTools(t *testing.T) {
 		t.Fatal("expected healthy server")
 	}
 	tools := server.GetEnabledTools()
-	if len(tools) != 2 {
-		t.Fatalf("expected 2 tools, got %v", tools)
+	if len(tools) != 3 {
+		t.Fatalf("expected 3 tools, got %v", tools)
 	}
 	names := map[string]bool{}
 	for _, name := range tools {
 		names[name] = true
 	}
-	if !names["echo"] || !names["ping"] {
-		t.Fatalf("expected echo and ping, got %v", tools)
+	if !names["vsphere_list_inventory"] || !names["vsphere_list_tasks"] {
+		t.Fatalf("expected vSphere tools, got %v", tools)
 	}
 }
 
@@ -52,7 +52,7 @@ func TestNewServerRejectsEmptyToolFilter(t *testing.T) {
 			LogLevel:     "info",
 			EnabledTools: []string{"missing"},
 		},
-		Toolsets: []toolset.Toolset{&example.Toolset{}},
+		Toolsets: []toolset.Toolset{vsphere.NewToolset(nil, false, false)},
 	})
 	if err == nil || !strings.Contains(err.Error(), "no tools registered") {
 		t.Fatalf("expected no tools registered error, got %v", err)
@@ -63,11 +63,11 @@ func TestNewServerRejectsDuplicateToolNames(t *testing.T) {
 	_, err := mcpserver.NewServer(mcpserver.Configuration{
 		StaticConfig: &config.StaticConfig{LogLevel: "info"},
 		Toolsets: []toolset.Toolset{
-			&example.Toolset{},
-			&example.Toolset{},
+			vsphere.NewToolset(nil, false, false),
+			vsphere.NewToolset(nil, false, false),
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), `duplicate tool name "echo"`) {
+	if err == nil || !strings.Contains(err.Error(), `duplicate tool name "vsphere_list_inventory"`) {
 		t.Fatalf("expected duplicate tool name error, got %v", err)
 	}
 }

@@ -12,8 +12,8 @@ import (
 	mcpgo "github.com/mark3labs/mcp-go/server"
 	"github.com/rs/zerolog/log"
 
-	"example.invalid/mcp-template-module-placeholder/pkg/core/config"
-	mcpserver "example.invalid/mcp-template-module-placeholder/pkg/server/mcp"
+	"github.com/futuretea/vsphere-mcp-server/pkg/core/config"
+	mcpserver "github.com/futuretea/vsphere-mcp-server/pkg/server/mcp"
 )
 
 const (
@@ -59,6 +59,9 @@ func ServeListener(ctx context.Context, mcpServer *mcpserver.Server, staticConfi
 	if listener == nil {
 		return errors.New("listener is required")
 	}
+	if !isLoopbackListener(listener) {
+		return errors.New("listener must use a loopback address while HTTP transports have no authentication")
+	}
 
 	httpServer := &http.Server{
 		Addr:              listener.Addr().String(),
@@ -70,6 +73,11 @@ func ServeListener(ctx context.Context, mcpServer *mcpserver.Server, staticConfi
 	handler := NewHandler(mcpServer, httpServer, staticConfig.SSEBaseURL)
 	httpServer.Handler = RequestMiddleware(handler)
 	return runServer(ctx, httpServer, handler, listener)
+}
+
+func isLoopbackListener(listener net.Listener) bool {
+	address, ok := listener.Addr().(*net.TCPAddr)
+	return ok && address.IP.IsLoopback()
 }
 
 func runServer(ctx context.Context, httpServer *http.Server, handler *Handler, listener net.Listener) error {

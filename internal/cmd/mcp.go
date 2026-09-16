@@ -7,10 +7,13 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"example.invalid/mcp-template-module-placeholder/pkg/core/config"
-	"example.invalid/mcp-template-module-placeholder/pkg/core/logging"
-	internalhttp "example.invalid/mcp-template-module-placeholder/pkg/server/http"
-	mcpserver "example.invalid/mcp-template-module-placeholder/pkg/server/mcp"
+	"github.com/futuretea/vsphere-mcp-server/pkg/core/config"
+	"github.com/futuretea/vsphere-mcp-server/pkg/core/logging"
+	internalhttp "github.com/futuretea/vsphere-mcp-server/pkg/server/http"
+	mcpserver "github.com/futuretea/vsphere-mcp-server/pkg/server/mcp"
+	"github.com/futuretea/vsphere-mcp-server/pkg/toolset"
+	vspheretoolset "github.com/futuretea/vsphere-mcp-server/pkg/toolset/vsphere"
+	vsphereservice "github.com/futuretea/vsphere-mcp-server/pkg/vsphere"
 )
 
 func newMCPCommand(streams IOStreams, cfgFile *string, v *viper.Viper) *cobra.Command {
@@ -18,13 +21,13 @@ func newMCPCommand(streams IOStreams, cfgFile *string, v *viper.Viper) *cobra.Co
 		Use:   "mcp",
 		Short: "start the MCP server",
 		Example: `  # stdio mode (default)
-  mcp-template-binary-placeholder mcp
+  vsphere-mcp-server mcp --config /path/to/config.yaml
 
   # HTTP mode on loopback
-  mcp-template-binary-placeholder mcp --port 8080
+  vsphere-mcp-server mcp --config /path/to/config.yaml --port 8080
 
   # HTTP mode on a custom listen address
-  mcp-template-binary-placeholder mcp --port 8080 --listen 127.0.0.1`,
+  vsphere-mcp-server mcp --config /path/to/config.yaml --port 8080 --listen 127.0.0.1`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := bindCommonFlags(v, cmd); err != nil {
 				return err
@@ -70,9 +73,16 @@ func runServer(ctx context.Context, cfgFile string, streams IOStreams, v *viper.
 		return fmt.Errorf("initialize logging: %w", err)
 	}
 
+	service := vsphereservice.NewService(cfg.VSphere)
+	defer func() { _ = service.Close(context.Background()) }()
+	capabilities, err := service.Capabilities(ctx)
+	if err != nil {
+		return fmt.Errorf("discover vSphere capabilities: %w", err)
+	}
+
 	server, err := mcpserver.NewServer(mcpserver.Configuration{
 		StaticConfig: cfg,
-		Toolsets:     defaultToolsets(),
+		Toolsets:     []toolset.Toolset{vspheretoolset.NewToolset(service, capabilities.Events, capabilities.Alarms)},
 	})
 	if err != nil {
 		return fmt.Errorf("create MCP server: %w", err)

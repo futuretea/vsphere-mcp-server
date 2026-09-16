@@ -6,3 +6,8 @@ enabled_tools: []
 disabled_tools: []
 enabled_domains: []
 disabled_domains: []
+vsphere:
+  endpoint: "https://vcenter.example.invalid/sdk"
+  username: "readonly-user"
+  password: ""
+  insecure: false

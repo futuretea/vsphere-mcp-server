@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/viper"
 
-	"example.invalid/mcp-template-module-placeholder/pkg/core/config"
+	"github.com/futuretea/vsphere-mcp-server/pkg/core/config"
 )
 
 func TestLoadConfigDefaults(t *testing.T) {
@@ -22,6 +22,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 	if cfg.LogLevel != "info" {
 		t.Fatalf("expected log_level info, got %q", cfg.LogLevel)
+	}
+	if cfg.VSphere.Insecure {
+		t.Fatal("expected vSphere certificate validation by default")
 	}
 }
 
@@ -45,6 +48,11 @@ func TestValidate(t *testing.T) {
 			name:    "bad log level",
 			cfg:     config.StaticConfig{Port: 0, LogLevel: "nope", Listen: "127.0.0.1"},
 			wantSub: "invalid log_level",
+		},
+		{
+			name:    "remote HTTP listener",
+			cfg:     config.StaticConfig{Port: 8080, LogLevel: "info", Listen: "0.0.0.0"},
+			wantSub: "must be a loopback",
 		},
 	}
 

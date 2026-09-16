@@ -1,17 +1,19 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"example.invalid/mcp-template-module-placeholder/internal/toolcatalog"
-	"example.invalid/mcp-template-module-placeholder/pkg/core/config"
-	"example.invalid/mcp-template-module-placeholder/pkg/core/version"
-	"example.invalid/mcp-template-module-placeholder/pkg/toolset"
-	"example.invalid/mcp-template-module-placeholder/pkg/toolset/example"
+	"github.com/futuretea/vsphere-mcp-server/internal/toolcatalog"
+	"github.com/futuretea/vsphere-mcp-server/pkg/core/config"
+	"github.com/futuretea/vsphere-mcp-server/pkg/core/version"
+	"github.com/futuretea/vsphere-mcp-server/pkg/toolset"
+	vspheretoolset "github.com/futuretea/vsphere-mcp-server/pkg/toolset/vsphere"
+	vsphereservice "github.com/futuretea/vsphere-mcp-server/pkg/vsphere"
 )
 
 // IOStreams groups the streams used by the CLI.
@@ -81,17 +83,38 @@ func loadCLIConfig(cmd *cobra.Command, cfgFile string, v *viper.Viper) (*config.
 	return cfg, nil
 }
 
-func defaultToolsets() []toolset.Toolset {
-	return []toolset.Toolset{&example.Toolset{}}
+func buildToolCatalog(cfg *config.StaticConfig) ([]toolset.ServerTool, error) {
+	catalog, cleanup, err := buildToolCatalogForCall(cfg)
+	defer cleanup()
+	return catalog, err
 }
 
-func buildToolCatalog(cfg *config.StaticConfig) ([]toolset.ServerTool, error) {
-	return toolcatalog.Build(defaultToolsets(), toolset.FilterOptions{
+func buildToolCatalogForCall(cfg *config.StaticConfig) ([]toolset.ServerTool, func(), error) {
+	service := vsphereservice.NewService(cfg.VSphere)
+	capabilities := vsphereservice.Capabilities{}
+	if cfg.VSphere.Endpoint != "" {
+		var err error
+		capabilities, err = service.Capabilities(context.Background())
+		if err != nil {
+			return nil, func() {}, fmt.Errorf("discover vSphere capabilities: %w", err)
+		}
+	}
+	toolsets := []toolset.Toolset{vspheretoolset.NewToolset(service, capabilities.Events, capabilities.Alarms)}
+	catalog, err := toolcatalog.Build(toolsets, toolset.FilterOptions{
 		EnabledTools:    cfg.EnabledTools,
 		DisabledTools:   cfg.DisabledTools,
 		EnabledDomains:  cfg.EnabledDomains,
 		DisabledDomains: cfg.DisabledDomains,
 	})
+	return catalog, func() { closeToolsets(toolsets) }, err
+}
+
+func closeToolsets(toolsets []toolset.Toolset) {
+	for _, configuredToolset := range toolsets {
+		if closer, ok := configuredToolset.(interface{ Close(context.Context) error }); ok {
+			_ = closer.Close(context.Background())
+		}
+	}
 }
 
 func newVersionCommand(streams IOStreams) *cobra.Command {

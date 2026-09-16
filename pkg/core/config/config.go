@@ -12,14 +12,23 @@ import (
 
 // StaticConfig contains configuration that is fixed when the server starts.
 type StaticConfig struct {
-	Port            int      `mapstructure:"port"`
-	Listen          string   `mapstructure:"listen"`
-	SSEBaseURL      string   `mapstructure:"sse_base_url"`
-	LogLevel        string   `mapstructure:"log_level"`
-	EnabledTools    []string `mapstructure:"enabled_tools"`
-	DisabledTools   []string `mapstructure:"disabled_tools"`
-	EnabledDomains  []string `mapstructure:"enabled_domains"`
-	DisabledDomains []string `mapstructure:"disabled_domains"`
+	Port            int           `mapstructure:"port"`
+	Listen          string        `mapstructure:"listen"`
+	SSEBaseURL      string        `mapstructure:"sse_base_url"`
+	LogLevel        string        `mapstructure:"log_level"`
+	EnabledTools    []string      `mapstructure:"enabled_tools"`
+	DisabledTools   []string      `mapstructure:"disabled_tools"`
+	EnabledDomains  []string      `mapstructure:"enabled_domains"`
+	DisabledDomains []string      `mapstructure:"disabled_domains"`
+	VSphere         VSphereConfig `mapstructure:"vsphere"`
+}
+
+// VSphereConfig identifies the one vSphere target configured for this server.
+type VSphereConfig struct {
+	Endpoint string `mapstructure:"endpoint"`
+	Username string `mapstructure:"username"`
+	Password string `mapstructure:"password"`
+	Insecure bool   `mapstructure:"insecure"`
 }
 
 // Validate checks whether the configuration can be used to start the server.
@@ -30,10 +39,22 @@ func (c *StaticConfig) Validate() error {
 	if c.Port != 0 && strings.TrimSpace(c.Listen) == "" {
 		return fmt.Errorf("listen must be set when port is non-zero")
 	}
+	if c.Port != 0 && !isLoopbackHost(c.Listen) {
+		return fmt.Errorf("listen must be a loopback address while HTTP transports have no authentication")
+	}
 	if _, err := zerolog.ParseLevel(c.LogLevel); err != nil {
 		return fmt.Errorf("invalid log_level %q: %w", c.LogLevel, err)
 	}
 	return nil
+}
+
+func isLoopbackHost(host string) bool {
+	host = strings.TrimSpace(strings.ToLower(host))
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // GetListenAddress returns the configured HTTP listen address (host:port).
@@ -59,6 +80,10 @@ func LoadConfig(configPath string, v *viper.Viper) (*StaticConfig, error) {
 		"disabled_tools":   []string{},
 		"enabled_domains":  []string{},
 		"disabled_domains": []string{},
+		"vsphere.endpoint": "",
+		"vsphere.username": "",
+		"vsphere.password": "",
+		"vsphere.insecure": false,
 	}
 	for key, value := range defaults {
 		v.SetDefault(key, value)
