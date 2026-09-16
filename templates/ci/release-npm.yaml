@@ -1,0 +1,174 @@
+name: Release NPM
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "__MCP_GO_VERSION__"
+  BINARY_NAME: "mcp-template-binary-placeholder"
+  NPM_PACKAGE_DIRECTORY: "__MCP_NPM_DIRECTORY__"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  resolve-platforms:
+    name: Resolve native platforms
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.platforms.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - id: platforms
+        run: echo "matrix=$(jq -c '.native' .github/ci/release-platforms.json)" >> "$GITHUB_OUTPUT"
+
+  validate-tag:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - name: Validate stable semantic version tag
+        id: tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Expected a stable semantic version tag in the form vX.Y.Z" >&2
+            exit 1
+          fi
+          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+
+  validate-release:
+    name: Validate release build
+    needs: validate-tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Vet and format
+        run: |
+          go vet ./...
+          test -z "$(gofmt -l cmd internal pkg)"
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7.0.1
+        with:
+          version: v2.12.2
+          args: --timeout=5m
+      - name: Run race tests
+        run: go test -race ./...
+      - name: Verify module
+        run: go mod verify
+      - name: Build
+        run: make build
+      - name: Smoke CLI
+        run: ./bin/${BINARY_NAME} version
+
+  build-platform:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: [resolve-platforms, validate-tag, validate-release]
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve-platforms.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build native binary
+        env:
+          RELEASE_VERSION: ${{ needs.validate-tag.outputs.version }}
+        run: |
+          suffix=''
+          if [ '${{ matrix.goos }}' = windows ]; then suffix=.exe; fi
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -trimpath -ldflags="-s -w \
+            -X example.invalid/mcp-template-module-placeholder/pkg/core/version.Version=${RELEASE_VERSION} \
+            -X example.invalid/mcp-template-module-placeholder/pkg/core/version.Commit=$(git rev-parse HEAD) \
+            -X example.invalid/mcp-template-module-placeholder/pkg/core/version.Date=$(git log -1 --format=%cI)" \
+            -o "dist/${BINARY_NAME}${suffix}" ./cmd/mcp-server
+      - name: Stage npm platform package
+        run: |
+          suffix=''
+          if [ '${{ matrix.goos }}' = windows ]; then suffix=.exe; fi
+          package_dir="npm/${NPM_PACKAGE_DIRECTORY}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          mkdir -p "$package_dir/bin"
+          cp "dist/${BINARY_NAME}${suffix}" "$package_dir/bin/${BINARY_NAME}${suffix}"
+      - name: Archive npm platform package
+        run: >
+          tar -C npm -czf dist/npm-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+          ${{ env.NPM_PACKAGE_DIRECTORY }}-${{ matrix.goos }}-${{ matrix.goarch }}
+      - name: Upload npm platform package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/npm-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish npm packages and GitHub release
+    needs: [validate-tag, validate-release, build-platform]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Validate npm registry configuration
+        env:
+          NPM_REGISTRY_URL: ${{ vars.NPM_REGISTRY_URL }}
+        run: test -n "$NPM_REGISTRY_URL"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          registry-url: ${{ vars.NPM_REGISTRY_URL }}
+      - name: Download npm platform packages
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: npm-*
+          path: dist/npm-artifacts
+          merge-multiple: true
+      - name: Restore npm platform packages
+        run: |
+          for archive in dist/npm-artifacts/*.tar.gz; do
+            tar -xzf "$archive" -C npm
+          done
+      - name: Verify package contents
+        run: |
+          make npm-verify-binaries
+          (cd "npm/${NPM_PACKAGE_DIRECTORY}" && npm pack --dry-run)
+      - name: Publish npm packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_VERSION: ${{ needs.validate-tag.outputs.version }}
+        run: make npm-publish
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          generate_release_notes: true
+          make_latest: true
