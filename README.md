@@ -110,12 +110,27 @@ Same process as HTTP mode. Endpoints:
 make docker
 
 # Stdio (default ENTRYPOINT is `vsphere-mcp-server mcp`)
-docker run -i --rm -v /absolute/path/to/config.yaml:/etc/vsphere-mcp/config.yaml:ro ghcr.io/futuretea/vsphere-mcp-server:dev --config /etc/vsphere-mcp/config.yaml
+docker run -i --rm -v /absolute/path/to/config.yaml:/etc/vsphere-mcp/config.yaml:ro ghcr.io/futuretea/vsphere-mcp-server:v0.1.0 --config /etc/vsphere-mcp/config.yaml
 
 ```
 
 HTTP / SSE have **no auth and no TLS** and are restricted to loopback. Put an authenticated TLS reverse proxy in front if you expose the port.
 The Docker image currently supports stdio only; run HTTP/SSE from the host loopback until an authenticated container proxy boundary is configured.
+
+## Releases
+
+`v0.1.0` is the first release. GitHub Releases provide checksummed archives for
+macOS (amd64, arm64), Linux (amd64, arm64), and Windows (amd64). The container
+image is published for Linux amd64 and arm64 at both
+`ghcr.io/futuretea/vsphere-mcp-server:v0.1.0` and `:latest`.
+
+Pushing a stable `vX.Y.Z` tag runs the release workflow. It validates the
+source, publishes the image, then creates the GitHub Release. If any step
+fails, the tag remains for an explicit retry; the workflow does not delete
+public artifacts automatically. Before 1.0, breaking MCP tool-schema changes
+are allowed only when called out in the release notes. Before creating a tag,
+add `releases/vX.Y.Z.md` with a non-empty `Breaking MCP tool schema changes`
+section; write `None.` when there is no breaking change.
 
 ## Configuration
 

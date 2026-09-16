@@ -110,12 +110,20 @@ curl -s http://127.0.0.1:8080/healthz
 make docker
 
 # Stdio（默认 ENTRYPOINT 为 vsphere-mcp-server mcp）
-docker run -i --rm -v /absolute/path/to/config.yaml:/etc/vsphere-mcp/config.yaml:ro ghcr.io/futuretea/vsphere-mcp-server:dev --config /etc/vsphere-mcp/config.yaml
+docker run -i --rm -v /absolute/path/to/config.yaml:/etc/vsphere-mcp/config.yaml:ro ghcr.io/futuretea/vsphere-mcp-server:v0.1.0 --config /etc/vsphere-mcp/config.yaml
 
 ```
 
 HTTP / SSE **无鉴权、无 TLS**，并且仅允许监听 loopback。若要对外暴露，请在前面放置带鉴权和 TLS 的反向代理。
 Docker 镜像当前仅支持 stdio；在配置好容器认证代理边界前，请从主机 loopback 运行 HTTP/SSE。
+
+## 发布
+
+`v0.1.0` 是首个版本。GitHub Release 提供带校验和的 macOS（amd64、arm64）、Linux（amd64、arm64）和 Windows（amd64）压缩包。容器镜像支持 Linux amd64 与 arm64，并同时发布到 `ghcr.io/futuretea/vsphere-mcp-server:v0.1.0` 和 `:latest`。
+
+推送稳定的 `vX.Y.Z` tag 会触发发布工作流：先验证源码，再发布镜像，最后创建 GitHub Release。任一步失败时保留 tag，人工重试；工作流不会自动删除公开产物。1.0 前允许破坏 MCP 工具 schema 的变更，但必须在 release notes 中说明。
+
+创建 tag 前，添加 `releases/vX.Y.Z.md`，其中必须有非空的 `Breaking MCP tool schema changes` 小节；没有破坏性变更时写 `None.`。
 
 ## 配置
 

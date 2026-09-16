@@ -78,7 +78,7 @@ jobs:
       - name: Verify module
         run: go mod verify
       - name: Smoke CLI
-        run: ./bin/${BINARY_NAME} version
+        run: ./bin/"${BINARY_NAME}" version
 
   docker:
     name: Docker Build

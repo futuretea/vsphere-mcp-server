@@ -1,0 +1,206 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  BINARY_NAME: vsphere-mcp-server
+  GO_VERSION: "1.25.10"
+  IMAGE_NAME: ghcr.io/futuretea/vsphere-mcp-server
+
+jobs:
+  resolve-platforms:
+    name: Resolve release platforms
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      docker: ${{ steps.platforms.outputs.docker }}
+      native: ${{ steps.platforms.outputs.native }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - id: platforms
+        run: |
+          echo "docker=$(jq -cr '.docker | join(",")' .github/ci/release-platforms.json)" >> "$GITHUB_OUTPUT"
+          echo "native=$(jq -c '.native.include' .github/ci/release-platforms.json)" >> "$GITHUB_OUTPUT"
+
+  validate-tag:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - id: tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Expected a stable semantic version tag in the form vX.Y.Z" >&2
+            exit 1
+          fi
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+
+  validate-release:
+    name: Validate release build
+    needs: validate-tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Validate breaking-schema declaration
+        env:
+          RELEASE_TAG: ${{ needs.validate-tag.outputs.tag }}
+        run: |
+          notes_path="releases/${RELEASE_TAG}.md"
+          test -f "$notes_path"
+          awk '
+            $0 == "## Breaking MCP tool schema changes" { in_section=1; next }
+            in_section && /^## / { exit }
+            in_section && $0 !~ /^[[:space:]]*$/ { has_declaration=1 }
+            END { exit !(in_section && has_declaration) }
+          ' "$notes_path" || {
+            echo "Release notes must declare breaking MCP tool schema changes" >&2
+            exit 1
+          }
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Vet and format
+        run: |
+          go vet ./...
+          test -z "$(gofmt -l cmd internal pkg)"
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7.0.1
+        with:
+          version: v2.12.2
+          args: --timeout=5m
+      - name: Run race tests
+        run: go test -race ./...
+      - name: Verify module
+        run: go mod verify
+      - name: Build and smoke test
+        run: |
+          make build
+          ./bin/"${BINARY_NAME}" version
+
+  build-assets:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }} asset
+    needs: [resolve-platforms, validate-tag]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.resolve-platforms.outputs.native) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build archive
+        env:
+          RELEASE_VERSION: ${{ needs.validate-tag.outputs.version }}
+        run: |
+          mkdir -p dist staging
+          binary="${BINARY_NAME}"
+          extension=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            extension=".exe"
+          fi
+          output="staging/${binary}${extension}"
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 go build -trimpath \
+            -ldflags="-s -w -X github.com/futuretea/vsphere-mcp-server/pkg/core/version.Version=${RELEASE_VERSION} -X github.com/futuretea/vsphere-mcp-server/pkg/core/version.Commit=${GITHUB_SHA} -X github.com/futuretea/vsphere-mcp-server/pkg/core/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o "$output" ./cmd/mcp-server
+          archive="${BINARY_NAME}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip -j "dist/${archive}.zip" "$output"
+          else
+            tar -C staging -czf "dist/${archive}.tar.gz" "${binary}${extension}"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish-image:
+    name: Publish Docker image
+    needs: [resolve-platforms, validate-tag, validate-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: metadata
+        name: Set build metadata
+        run: echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - name: Build and publish multi-architecture image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          platforms: ${{ needs.resolve-platforms.outputs.docker }}
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ needs.validate-tag.outputs.tag }}
+            ${{ env.IMAGE_NAME }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.validate-tag.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.metadata.outputs.build_date }}
+          build-args: |
+            VERSION=${{ needs.validate-tag.outputs.version }}
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ steps.metadata.outputs.build_date }}
+
+  publish-release:
+    name: Publish GitHub release
+    needs: [build-assets, publish-image, validate-tag]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Create checksums
+        run: sha256sum dist/* > dist/checksums.txt
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate-tag.outputs.tag }}
+        run: gh release create "$RELEASE_TAG" dist/* --generate-notes --notes-file "releases/${RELEASE_TAG}.md" --latest --title "$RELEASE_TAG" --verify-tag
