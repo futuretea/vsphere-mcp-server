@@ -1,5 +1,6 @@
 port: 0
 listen: 127.0.0.1
+listen_any: false
 sse_base_url: ""
 log_level: info
 enabled_tools: []

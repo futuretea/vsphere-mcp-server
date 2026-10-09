@@ -116,6 +116,7 @@ docker run -i --rm -v /absolute/path/to/config.yaml:/etc/vsphere-mcp/config.yaml
 
 HTTP / SSE have **no auth and no TLS** and are restricted to loopback. Put an authenticated TLS reverse proxy in front if you expose the port.
 The Docker image currently supports stdio only; run HTTP/SSE from the host loopback until an authenticated container proxy boundary is configured.
+Listening on a non-loopback address (for example inside a container or pod sidecar pattern) requires the explicit `listen_any` opt-in (`--listen-any` flag or `MCP_LISTEN_ANY=true`); the endpoints stay unauthenticated, so keep an authenticated proxy in front.
 
 ## Releases
 
@@ -143,6 +144,7 @@ Priority: **flags > environment variables > config file > defaults**.
 | `MCP_LOG_LEVEL` | Log level | `info` |
 | `MCP_PORT` | HTTP port (`0` = stdio) | `0` |
 | `MCP_LISTEN` | HTTP listen host | `127.0.0.1` |
+| `MCP_LISTEN_ANY` | Allow non-loopback listen addresses (endpoints stay unauthenticated) | `false` |
 | `MCP_SSE_BASE_URL` | Public SSE base URL | `""` |
 | `MCP_VSPHERE_ENDPOINT` | ESXi or vCenter HTTPS endpoint | unset |
 | `MCP_VSPHERE_USERNAME` | Read-only target username | unset |
@@ -156,6 +158,7 @@ See `config.example.yaml`:
 ```yaml
 port: 0
 listen: 127.0.0.1
+listen_any: false
 sse_base_url: ""
 log_level: info
 enabled_tools: []

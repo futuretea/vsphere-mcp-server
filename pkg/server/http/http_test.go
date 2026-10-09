@@ -131,6 +131,54 @@ func TestServeListenerRejectsRemoteAddress(t *testing.T) {
 	}
 }
 
+func TestServeListenerAllowsRemoteAddressWhenOptedIn(t *testing.T) {
+	mcpServer, err := mcpserver.NewServer(mcpserver.Configuration{
+		StaticConfig: &config.StaticConfig{LogLevel: "info"},
+		Toolsets:     []toolset.Toolset{vsphere.NewToolset(nil, false, false)},
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	defer mcpServer.Close()
+
+	listener, err := net.Listen("tcp", "0.0.0.0:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	cfg := &config.StaticConfig{Port: listener.Addr().(*net.TCPAddr).Port, Listen: "0.0.0.0", ListenAny: true}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- internalhttp.ServeListener(ctx, mcpServer, cfg, listener)
+	}()
+
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get("http://" + listener.Addr().String() + internalhttp.HealthEndpoint)
+	if err != nil {
+		t.Fatalf("GET healthz: %v", err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil {
+		t.Fatalf("read healthz body: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK || string(body) != "healthy" {
+		t.Fatalf("healthz status=%d body=%q", resp.StatusCode, body)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("ServeListener: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ServeListener did not exit after cancel")
+	}
+}
+
 type responseRecorder struct {
 	header http.Header
 	status int

@@ -116,6 +116,7 @@ docker run -i --rm -v /absolute/path/to/config.yaml:/etc/vsphere-mcp/config.yaml
 
 HTTP / SSE **无鉴权、无 TLS**，并且仅允许监听 loopback。若要对外暴露，请在前面放置带鉴权和 TLS 的反向代理。
 Docker 镜像当前仅支持 stdio；在配置好容器认证代理边界前，请从主机 loopback 运行 HTTP/SSE。
+监听非回环地址（例如容器或 Pod sidecar 场景）需要显式开启 `listen_any`（`--listen-any` 标志或 `MCP_LISTEN_ANY=true`）；端点仍无鉴权，请务必保留带鉴权的反向代理。
 
 ## 发布
 
@@ -136,6 +137,7 @@ Docker 镜像当前仅支持 stdio；在配置好容器认证代理边界前，�
 | `MCP_LOG_LEVEL` | 日志级别 | `info` |
 | `MCP_PORT` | HTTP 端口（`0` = stdio） | `0` |
 | `MCP_LISTEN` | HTTP 监听地址 | `127.0.0.1` |
+| `MCP_LISTEN_ANY` | 允许监听非回环地址（端点仍无鉴权） | `false` |
 | `MCP_SSE_BASE_URL` | 对外 SSE base URL | `""` |
 | `MCP_VSPHERE_ENDPOINT` | ESXi 或 vCenter HTTPS 地址 | 未设置 |
 | `MCP_VSPHERE_USERNAME` | 只读目标用户名 | 未设置 |
@@ -149,6 +151,7 @@ Docker 镜像当前仅支持 stdio；在配置好容器认证代理边界前，�
 ```yaml
 port: 0
 listen: 127.0.0.1
+listen_any: false
 sse_base_url: ""
 log_level: info
 enabled_tools: []
