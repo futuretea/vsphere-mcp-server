@@ -26,8 +26,8 @@ func newMCPCommand(streams IOStreams, cfgFile *string, v *viper.Viper) *cobra.Co
   # HTTP mode on loopback
   vsphere-mcp-server mcp --config /path/to/config.yaml --port 8080
 
-  # HTTP mode on a custom listen address
-  vsphere-mcp-server mcp --config /path/to/config.yaml --port 8080 --listen 127.0.0.1`,
+  # HTTP mode on all interfaces (no authentication)
+  vsphere-mcp-server mcp --config /path/to/config.yaml --port 8080 --listen 0.0.0.0`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := bindCommonFlags(v, cmd); err != nil {
 				return err
@@ -40,7 +40,7 @@ func newMCPCommand(streams IOStreams, cfgFile *string, v *viper.Viper) *cobra.Co
 	}
 
 	command.Flags().Int("port", 0, "port for HTTP mode; 0 runs stdio mode")
-	command.Flags().String("listen", "127.0.0.1", "HTTP listen host; defaults to loopback (no auth on HTTP transports)")
+	command.Flags().String("listen", "127.0.0.1", "HTTP listen host; loopback or 0.0.0.0 (no auth on HTTP transports)")
 	command.Flags().String("sse-base-url", "", "public base URL for SSE message endpoints")
 	command.Flags().String("log-level", "info", "log level: trace, debug, info, warn, error, fatal, panic, disabled")
 	return command

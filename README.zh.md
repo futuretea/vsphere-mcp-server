@@ -76,6 +76,15 @@ Cursor / Claude Desktop 配置示例：
 curl -s http://127.0.0.1:8080/healthz
 ```
 
+默认监听地址为 `127.0.0.1`。如需监听所有网络接口：
+
+```bash
+./bin/vsphere-mcp-server mcp --config config.example.yaml --port 8080 --listen 0.0.0.0
+```
+
+客户端 URL 应使用服务器可访问的 IP 或主机名，不要使用 `0.0.0.0`。
+HTTP / SSE **无鉴权、无 TLS**。若要对外暴露，请在前面放置带鉴权和 TLS 的反向代理。
+
 客户端配置示例：
 
 ```json
@@ -112,10 +121,11 @@ make docker
 # Stdio（默认 ENTRYPOINT 为 vsphere-mcp-server mcp）
 docker run -i --rm -v /absolute/path/to/config.yaml:/etc/vsphere-mcp/config.yaml:ro ghcr.io/futuretea/vsphere-mcp-server:v0.1.0 --config /etc/vsphere-mcp/config.yaml
 
+# 使用本地构建镜像运行 HTTP / SSE
+docker run --rm -p 127.0.0.1:8080:8080 -v /absolute/path/to/config.yaml:/etc/vsphere-mcp/config.yaml:ro ghcr.io/futuretea/vsphere-mcp-server:dev --config /etc/vsphere-mcp/config.yaml --port 8080 --listen 0.0.0.0
 ```
 
-HTTP / SSE **无鉴权、无 TLS**，并且仅允许监听 loopback。若要对外暴露，请在前面放置带鉴权和 TLS 的反向代理。
-Docker 镜像当前仅支持 stdio；在配置好容器认证代理边界前，请从主机 loopback 运行 HTTP/SSE。
+HTTP 示例在容器内监听所有网络接口，并将端口发布到主机的 loopback 地址。
 
 ## 发布
 

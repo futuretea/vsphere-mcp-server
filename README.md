@@ -76,6 +76,15 @@ Cursor / Claude Desktop style config:
 curl -s http://127.0.0.1:8080/healthz
 ```
 
+The default listen host is `127.0.0.1`. To listen on all interfaces:
+
+```bash
+./bin/vsphere-mcp-server mcp --config config.example.yaml --port 8080 --listen 0.0.0.0
+```
+
+Clients should use the server's reachable IP or hostname in the URL, not `0.0.0.0`.
+HTTP / SSE have **no auth and no TLS**. Put an authenticated TLS reverse proxy in front if you expose the port.
+
 Client config example:
 
 ```json
@@ -112,10 +121,11 @@ make docker
 # Stdio (default ENTRYPOINT is `vsphere-mcp-server mcp`)
 docker run -i --rm -v /absolute/path/to/config.yaml:/etc/vsphere-mcp/config.yaml:ro ghcr.io/futuretea/vsphere-mcp-server:v0.1.0 --config /etc/vsphere-mcp/config.yaml
 
+# HTTP / SSE using the locally built image
+docker run --rm -p 127.0.0.1:8080:8080 -v /absolute/path/to/config.yaml:/etc/vsphere-mcp/config.yaml:ro ghcr.io/futuretea/vsphere-mcp-server:dev --config /etc/vsphere-mcp/config.yaml --port 8080 --listen 0.0.0.0
 ```
 
-HTTP / SSE have **no auth and no TLS** and are restricted to loopback. Put an authenticated TLS reverse proxy in front if you expose the port.
-The Docker image currently supports stdio only; run HTTP/SSE from the host loopback until an authenticated container proxy boundary is configured.
+The HTTP example listens on all interfaces inside the container and publishes the port on the host loopback address.
 
 ## Releases
 

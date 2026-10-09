@@ -28,12 +28,28 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadConfigWildcardListen(t *testing.T) {
+	t.Setenv("MCP_PORT", "8080")
+	t.Setenv("MCP_LISTEN", "0.0.0.0")
+	cfg, err := config.LoadConfig("", viper.New())
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.GetListenAddress() != "0.0.0.0:8080" {
+		t.Fatalf("expected wildcard listen address, got %q", cfg.GetListenAddress())
+	}
+}
+
 func TestValidate(t *testing.T) {
 	tests := []struct {
 		name    string
 		cfg     config.StaticConfig
 		wantSub string
 	}{
+		{name: "wildcard HTTP listener", cfg: config.StaticConfig{Port: 8080, LogLevel: "info", Listen: "0.0.0.0"}},
+		{name: "IPv4 loopback", cfg: config.StaticConfig{Port: 8080, LogLevel: "info", Listen: "127.0.0.1"}},
+		{name: "IPv6 loopback", cfg: config.StaticConfig{Port: 8080, LogLevel: "info", Listen: "::1"}},
+		{name: "localhost", cfg: config.StaticConfig{Port: 8080, LogLevel: "info", Listen: "localhost"}},
 		{
 			name:    "bad port",
 			cfg:     config.StaticConfig{Port: 70000, LogLevel: "info", Listen: "127.0.0.1"},
@@ -51,7 +67,7 @@ func TestValidate(t *testing.T) {
 		},
 		{
 			name:    "remote HTTP listener",
-			cfg:     config.StaticConfig{Port: 8080, LogLevel: "info", Listen: "0.0.0.0"},
+			cfg:     config.StaticConfig{Port: 8080, LogLevel: "info", Listen: "192.0.2.1"},
 			wantSub: "must be a loopback",
 		},
 	}
@@ -59,6 +75,12 @@ func TestValidate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.cfg.Validate()
+			if tt.wantSub == "" {
+				if err != nil {
+					t.Fatalf("Validate() error = %v", err)
+				}
+				return
+			}
 			if err == nil || !strings.Contains(err.Error(), tt.wantSub) {
 				t.Fatalf("Validate() error = %v, want substring %q", err, tt.wantSub)
 			}
@@ -74,6 +96,7 @@ func TestGetListenAddress(t *testing.T) {
 	}{
 		{name: "stdio", cfg: config.StaticConfig{Port: 0, Listen: "127.0.0.1"}, want: ""},
 		{name: "IPv4", cfg: config.StaticConfig{Port: 8080, Listen: "127.0.0.1"}, want: "127.0.0.1:8080"},
+		{name: "wildcard", cfg: config.StaticConfig{Port: 8080, Listen: "0.0.0.0"}, want: "0.0.0.0:8080"},
 		{name: "hostname", cfg: config.StaticConfig{Port: 8080, Listen: "localhost"}, want: "localhost:8080"},
 		{name: "IPv6", cfg: config.StaticConfig{Port: 8080, Listen: "::1"}, want: "[::1]:8080"},
 	}

@@ -59,8 +59,8 @@ func ServeListener(ctx context.Context, mcpServer *mcpserver.Server, staticConfi
 	if listener == nil {
 		return errors.New("listener is required")
 	}
-	if !isLoopbackListener(listener) {
-		return errors.New("listener must use a loopback address while HTTP transports have no authentication")
+	if !isAllowedListener(listener) {
+		return errors.New("listener must use a loopback or unspecified address while HTTP transports have no authentication")
 	}
 
 	httpServer := &http.Server{
@@ -75,9 +75,9 @@ func ServeListener(ctx context.Context, mcpServer *mcpserver.Server, staticConfi
 	return runServer(ctx, httpServer, handler, listener)
 }
 
-func isLoopbackListener(listener net.Listener) bool {
+func isAllowedListener(listener net.Listener) bool {
 	address, ok := listener.Addr().(*net.TCPAddr)
-	return ok && address.IP.IsLoopback()
+	return ok && (address.IP.IsLoopback() || address.IP.IsUnspecified())
 }
 
 func runServer(ctx context.Context, httpServer *http.Server, handler *Handler, listener net.Listener) error {

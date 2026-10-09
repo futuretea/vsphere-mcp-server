@@ -39,8 +39,8 @@ func (c *StaticConfig) Validate() error {
 	if c.Port != 0 && strings.TrimSpace(c.Listen) == "" {
 		return fmt.Errorf("listen must be set when port is non-zero")
 	}
-	if c.Port != 0 && !isLoopbackHost(c.Listen) {
-		return fmt.Errorf("listen must be a loopback address while HTTP transports have no authentication")
+	if c.Port != 0 && !isAllowedListenHost(c.Listen) {
+		return fmt.Errorf("listen must be a loopback address or 0.0.0.0 while HTTP transports have no authentication")
 	}
 	if _, err := zerolog.ParseLevel(c.LogLevel); err != nil {
 		return fmt.Errorf("invalid log_level %q: %w", c.LogLevel, err)
@@ -48,9 +48,9 @@ func (c *StaticConfig) Validate() error {
 	return nil
 }
 
-func isLoopbackHost(host string) bool {
+func isAllowedListenHost(host string) bool {
 	host = strings.TrimSpace(strings.ToLower(host))
-	if host == "localhost" {
+	if host == "localhost" || host == "0.0.0.0" {
 		return true
 	}
 	ip := net.ParseIP(host)
