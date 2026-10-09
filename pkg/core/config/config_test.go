@@ -66,6 +66,13 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+func TestValidateAllowsListenAnyWhenOptedIn(t *testing.T) {
+	cfg := config.StaticConfig{Port: 8080, LogLevel: "info", Listen: "0.0.0.0", ListenAny: true}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}
+
 func TestGetListenAddress(t *testing.T) {
 	tests := []struct {
 		name string

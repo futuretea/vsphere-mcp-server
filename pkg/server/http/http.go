@@ -59,7 +59,7 @@ func ServeListener(ctx context.Context, mcpServer *mcpserver.Server, staticConfi
 	if listener == nil {
 		return errors.New("listener is required")
 	}
-	if !isLoopbackListener(listener) {
+	if !staticConfig.ListenAny && !isLoopbackListener(listener) {
 		return errors.New("listener must use a loopback address while HTTP transports have no authentication")
 	}
 

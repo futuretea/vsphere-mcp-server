@@ -41,6 +41,7 @@ func newMCPCommand(streams IOStreams, cfgFile *string, v *viper.Viper) *cobra.Co
 
 	command.Flags().Int("port", 0, "port for HTTP mode; 0 runs stdio mode")
 	command.Flags().String("listen", "127.0.0.1", "HTTP listen host; defaults to loopback (no auth on HTTP transports)")
+	command.Flags().Bool("listen-any", false, "allow listening on non-loopback addresses; the HTTP transports stay unauthenticated, keep them behind an authenticated proxy")
 	command.Flags().String("sse-base-url", "", "public base URL for SSE message endpoints")
 	command.Flags().String("log-level", "info", "log level: trace, debug, info, warn, error, fatal, panic, disabled")
 	return command
@@ -50,6 +51,7 @@ func bindMCPFlags(v *viper.Viper, cmd *cobra.Command) error {
 	bindings := map[string]string{
 		"port":         "port",
 		"listen":       "listen",
+		"listen_any":   "listen-any",
 		"sse_base_url": "sse-base-url",
 		"log_level":    "log-level",
 	}

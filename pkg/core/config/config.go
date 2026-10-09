@@ -14,6 +14,7 @@ import (
 type StaticConfig struct {
 	Port            int           `mapstructure:"port"`
 	Listen          string        `mapstructure:"listen"`
+	ListenAny       bool          `mapstructure:"listen_any"`
 	SSEBaseURL      string        `mapstructure:"sse_base_url"`
 	LogLevel        string        `mapstructure:"log_level"`
 	EnabledTools    []string      `mapstructure:"enabled_tools"`
@@ -39,8 +40,8 @@ func (c *StaticConfig) Validate() error {
 	if c.Port != 0 && strings.TrimSpace(c.Listen) == "" {
 		return fmt.Errorf("listen must be set when port is non-zero")
 	}
-	if c.Port != 0 && !isLoopbackHost(c.Listen) {
-		return fmt.Errorf("listen must be a loopback address while HTTP transports have no authentication")
+	if c.Port != 0 && !c.ListenAny && !isLoopbackHost(c.Listen) {
+		return fmt.Errorf("listen must be a loopback address while HTTP transports have no authentication (set listen_any to allow other addresses)")
 	}
 	if _, err := zerolog.ParseLevel(c.LogLevel); err != nil {
 		return fmt.Errorf("invalid log_level %q: %w", c.LogLevel, err)
@@ -74,6 +75,7 @@ func LoadConfig(configPath string, v *viper.Viper) (*StaticConfig, error) {
 	defaults := map[string]any{
 		"port":             0,
 		"listen":           "127.0.0.1",
+		"listen_any":       false,
 		"sse_base_url":     "",
 		"log_level":        "info",
 		"enabled_tools":    []string{},
