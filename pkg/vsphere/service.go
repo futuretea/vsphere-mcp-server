@@ -10,8 +10,7 @@ import (
 
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/alarm"
-	"github.com/vmware/govmomi/event"
-	"github.com/vmware/govmomi/find"
+	"github.com/vmware/govmomi/fault"
 	"github.com/vmware/govmomi/performance"
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
@@ -63,6 +62,9 @@ func (s *Service) Capabilities(ctx context.Context) (Capabilities, error) {
 	capabilities := Capabilities{Alarms: client.ServiceContent.AlarmManager != nil}
 	if client.ServiceContent.EventManager != nil {
 		_, err := s.ListEvents(ctx, 1)
+		if err != nil && !fault.Is(err, &types.NotImplemented{}) && !fault.Is(err, &types.NotSupported{}) {
+			return Capabilities{}, fmt.Errorf("discover event capability: %w", err)
+		}
 		capabilities.Events = err == nil
 	}
 	return capabilities, nil
@@ -70,20 +72,7 @@ func (s *Service) Capabilities(ctx context.Context) (Capabilities, error) {
 
 // ListInventory lists a supported inventory kind without changing target state.
 func (s *Service) ListInventory(ctx context.Context, kind string, limit int) (string, error) {
-	client, err := s.clientFor(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	finder := find.NewFinder(client.Client, true)
-	if datacenter, err := finder.DefaultDatacenter(ctx); err == nil {
-		finder.SetDatacenter(datacenter)
-	}
-	references, err := inventoryReferences(ctx, finder, strings.TrimSpace(kind))
-	if err != nil {
-		return "", err
-	}
-	return marshal(limitInventory(references, limit))
+	return s.ListInventoryPage(ctx, kind, "", "", limit, 0)
 }
 
 // QueryMetrics lists available performance counters for one managed object.
@@ -123,41 +112,12 @@ func (s *Service) QueryMetrics(ctx context.Context, entityType, entityID string,
 
 // ListEvents lists recent events without creating an event collector.
 func (s *Service) ListEvents(ctx context.Context, limit int) (string, error) {
-	client, err := s.clientFor(ctx)
-	if err != nil {
-		return "", err
-	}
-	if client.ServiceContent.EventManager == nil {
-		return "", fmt.Errorf("events are not available on this target")
-	}
-
-	events, err := event.NewManager(client.Client).QueryEvents(ctx, types.EventFilterSpec{MaxCount: int32(limit)})
-	if err != nil {
-		return "", fmt.Errorf("query events: %w", err)
-	}
-	return marshal(events)
+	return s.QueryEvents(ctx, types.EventFilterSpec{MaxCount: int32(limit)})
 }
 
 // ListTasks lists recent tasks without creating a task collector.
 func (s *Service) ListTasks(ctx context.Context, limit int) (string, error) {
-	client, err := s.clientFor(ctx)
-	if err != nil {
-		return "", err
-	}
-	if client.ServiceContent.TaskManager == nil {
-		return "", fmt.Errorf("tasks are not available on this target")
-	}
-
-	var manager mo.TaskManager
-	collector := property.DefaultCollector(client.Client)
-	if err := collector.RetrieveOne(ctx, *client.ServiceContent.TaskManager, []string{"recentTask"}, &manager); err != nil {
-		return "", fmt.Errorf("retrieve recent tasks: %w", err)
-	}
-	references := manager.RecentTask
-	if len(references) > limit {
-		references = references[:limit]
-	}
-	return retrieveTasks(ctx, collector, references)
+	return s.QueryTasks(ctx, types.TaskFilterSpec{}, limit)
 }
 
 func retrieveTasks(ctx context.Context, collector *property.Collector, references []types.ManagedObjectReference) (string, error) {
@@ -234,115 +194,17 @@ func targetURL(target config.VSphereConfig) (*url.URL, error) {
 	return parsed, nil
 }
 
-type reference interface {
-	Reference() types.ManagedObjectReference
-}
-
-func inventoryReferences(ctx context.Context, finder *find.Finder, kind string) ([]reference, error) {
-	var values []reference
-	appendReferences := func(items []reference) { values = append(values, items...) }
-	switch kind {
-	case "vm":
-		items, err := finder.VirtualMachineList(ctx, "*")
-		if err != nil {
-			return nil, err
-		}
-		for _, item := range items {
-			appendReferences([]reference{item})
-		}
-	case "host":
-		items, err := finder.HostSystemList(ctx, "*")
-		if err != nil {
-			return nil, err
-		}
-		for _, item := range items {
-			appendReferences([]reference{item})
-		}
-	case "datastore":
-		items, err := finder.DatastoreList(ctx, "*")
-		if err != nil {
-			return nil, err
-		}
-		for _, item := range items {
-			appendReferences([]reference{item})
-		}
-	case "network":
-		items, err := finder.NetworkList(ctx, "*")
-		if err != nil {
-			return nil, err
-		}
-		for _, item := range items {
-			appendReferences([]reference{item})
-		}
-	case "distributed_portgroup":
-		items, err := finder.NetworkList(ctx, "*")
-		if err != nil {
-			return nil, err
-		}
-		for _, item := range items {
-			if item.Reference().Type == "DistributedVirtualPortgroup" {
-				appendReferences([]reference{item})
-			}
-		}
-	case "datacenter":
-		items, err := finder.DatacenterList(ctx, "*")
-		if err != nil {
-			return nil, err
-		}
-		for _, item := range items {
-			appendReferences([]reference{item})
-		}
-	case "cluster":
-		items, err := finder.ClusterComputeResourceList(ctx, "*")
-		if err != nil {
-			return nil, err
-		}
-		for _, item := range items {
-			appendReferences([]reference{item})
-		}
-	case "resource_pool":
-		items, err := finder.ResourcePoolList(ctx, "*")
-		if err != nil {
-			return nil, err
-		}
-		for _, item := range items {
-			appendReferences([]reference{item})
-		}
-	case "folder":
-		items, err := finder.FolderList(ctx, "*")
-		if err != nil {
-			return nil, err
-		}
-		for _, item := range items {
-			appendReferences([]reference{item})
-		}
-	default:
-		return nil, fmt.Errorf("unsupported inventory kind %q", kind)
-	}
-	return values, nil
-}
-
 type inventoryObject struct {
 	Type string `json:"type"`
 	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
+	Path string `json:"path,omitempty"`
 }
 type metric struct {
 	ID       int32  `json:"id"`
 	Instance string `json:"instance"`
 	Name     string `json:"name"`
 	Unit     string `json:"unit"`
-}
-
-func limitInventory(references []reference, limit int) []inventoryObject {
-	if len(references) > limit {
-		references = references[:limit]
-	}
-	result := make([]inventoryObject, 0, len(references))
-	for _, item := range references {
-		ref := item.Reference()
-		result = append(result, inventoryObject{Type: ref.Type, ID: ref.Value})
-	}
-	return result
 }
 
 func marshal(value any) (string, error) {

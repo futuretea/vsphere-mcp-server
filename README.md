@@ -48,6 +48,33 @@ make build
 ./bin/vsphere-mcp-server tools call vsphere_list_events --config config.example.yaml --params '{"limit":25}'
 ```
 
+### Query VM monitoring
+
+Use these JSON objects as MCP tool arguments, or pass them to `tools call <name> --config config.yaml --params '<JSON>'`.
+
+1. Call `vsphere_list_inventory` with `{"kind":"vm","limit":100,"offset":0}`. Each row contains `type`, `id`, `name` and `path`. Increase `offset` by the number of returned rows until a page is empty. Results span accessible data centers; optionally add `datacenter_id` (from `{"kind":"datacenter"}`) and an exact `name` to narrow the query. Pages use path/type/id order; inventory changes between calls can shift offsets.
+2. Call `vsphere_get_resource` with `{"entity_type":"VirtualMachine","entity_id":"vm-123"}` using the returned ID. The selected summary includes CPU and memory configuration, power state, quick statistics, and guest information when the target provides it. Host and datastore summaries are available through their inventory types too.
+3. Call `vsphere_query_metrics` with `{"entity_type":"VirtualMachine","entity_id":"vm-123","limit":1000}` to discover available counter names, units and instances. This existing tool returns a counter directory, without readings or timestamps. Its default limit remains 100; the maximum is 1000.
+4. Call `vsphere_query_metric_samples` to read values:
+
+   ```json
+   {"entity_type":"VirtualMachine","entity_id":"vm-123","metrics":["cpu.usage.average","mem.usage.average"],"max_samples":10}
+   ```
+
+The sample response contains `entity`, `sample_info` (timestamp and interval in seconds), and `metrics` (id, name, unit, instance, values and scale). Values align by index with `sample_info` in ascending time order. Multiply each raw value by `scale` to display its unit: a percent reading of `1250` with scale `0.01` means `12.5%`. Empty readings remain empty; provider values are preserved.
+
+Sampling defaults to one recent point at the provider's real-time refresh rate and the aggregate instance (`""`). `max_samples` accepts 1–1000. To inspect device readings, select a discovered instance or use `"instance":"*"`. Disk/network counters vary by target and collection level; discover their names and instances first. For historical data, pass RFC3339 `start_time` / `end_time` and an enabled `interval_seconds`. Availability and retention depend on the target's collection settings; a wider time range does not create missing history.
+
+### Events, tasks and active alarms
+
+`vsphere_list_events` and `vsphere_list_tasks` accept optional paired `entity_type` / `entity_id`, RFC3339 `start_time` / `end_time`, and the existing `limit` (default 100, maximum 1000). Filters apply before the limit. Tasks are selected from the target's **recent-task cache**, ordered by newest queue time; the time filter also uses queue time. This does not query arbitrary task history.
+
+```json
+{"entity_type":"VirtualMachine","entity_id":"vm-123","start_time":"2026-10-14T00:00:00Z","end_time":"2026-10-14T01:00:00Z","limit":25}
+```
+
+On targets with alarm support, `vsphere_list_alarms` continues to return alarm definitions. Use `vsphere_list_triggered_alarms` with the same optional entity pair and `limit` to read current alarm states, names, entity references, trigger times and acknowledgement information. Omit the entity pair to query the accessible root scope.
+
 ## MCP transports
 
 ### Stdio (default)
@@ -201,7 +228,7 @@ templates/                # CI and release scaffolding copied by the initializer
 
 ## Compatibility and limits
 
-The common queries intentionally use APIs available in vSphere 6.7. vCenter-only inventory kinds are `datacenter`, `cluster`, `resource_pool`, `folder`, and `distributed_portgroup`. The MCP server probes event queries and `AlarmManager` at startup; it exposes `vsphere_list_events` and `vsphere_list_alarms` only when the target supports them. Local tests use govmomi simulators; they do not replace validation against an authorized real 6.7, 7.0.3, or 8.x environment.
+The common queries intentionally use APIs available in vSphere 6.7. vCenter-only inventory kinds are `datacenter`, `cluster`, `resource_pool`, `folder`, and `distributed_portgroup`. The MCP server probes event queries and `AlarmManager` at startup; it exposes events and the two alarm tools only when the target supports them. Definite unsupported event API faults disable that tool; temporary probe errors fail discovery with the original error instead of silently hiding it. Session expiration is reported as an authentication error; automatic reconnection is not implemented. Local tests use govmomi simulators; they do not replace validation against an authorized real 6.7, 7.0.3, or 8.x environment.
 
 ## Development
 

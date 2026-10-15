@@ -27,15 +27,18 @@ func TestNewServerRegistersExampleTools(t *testing.T) {
 		t.Fatal("expected healthy server")
 	}
 	tools := server.GetEnabledTools()
-	if len(tools) != 3 {
-		t.Fatalf("expected 3 tools, got %v", tools)
+	wantNames := []string{"vsphere_list_inventory", "vsphere_query_metrics", "vsphere_list_tasks", "vsphere_query_metric_samples", "vsphere_get_resource"}
+	if len(tools) != len(wantNames) {
+		t.Fatalf("expected %d tools, got %v", len(wantNames), tools)
 	}
 	names := map[string]bool{}
 	for _, name := range tools {
 		names[name] = true
 	}
-	if !names["vsphere_list_inventory"] || !names["vsphere_list_tasks"] {
-		t.Fatalf("expected vSphere tools, got %v", tools)
+	for _, name := range wantNames {
+		if !names[name] {
+			t.Fatalf("missing vSphere tool %q in %v", name, tools)
+		}
 	}
 }
 

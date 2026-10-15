@@ -11,8 +11,9 @@ import (
 
 func TestToolsetExposesOnlyReadOnlyQueries(t *testing.T) {
 	tools := vsphere.NewToolset(nil, false, false).GetTools()
-	if len(tools) != 3 {
-		t.Fatalf("tool count = %d, want 3", len(tools))
+	wantNames := []string{"vsphere_list_inventory", "vsphere_query_metrics", "vsphere_list_tasks", "vsphere_query_metric_samples", "vsphere_get_resource"}
+	if len(tools) != len(wantNames) {
+		t.Fatalf("tool count = %d, want %d", len(tools), len(wantNames))
 	}
 
 	handlers := make(map[string]toolset.ToolHandler, len(tools))
@@ -23,6 +24,11 @@ func TestToolsetExposesOnlyReadOnlyQueries(t *testing.T) {
 		}
 		if strings.Contains(tool.Tool.Name, "create") || strings.Contains(tool.Tool.Name, "delete") {
 			t.Fatalf("unexpected write tool %q", tool.Tool.Name)
+		}
+	}
+	for _, name := range wantNames {
+		if handlers[name] == nil {
+			t.Fatalf("missing tool %q", name)
 		}
 	}
 
@@ -50,10 +56,18 @@ func TestToolsetValidatesRequiredFields(t *testing.T) {
 func TestToolsetRegistersAlarmsOnlyWhenAvailable(t *testing.T) {
 	withoutAlarms := vsphere.NewToolset(nil, false, false).GetTools()
 	withAlarms := vsphere.NewToolset(nil, false, true).GetTools()
-	if len(withAlarms) != len(withoutAlarms)+1 {
+	if len(withAlarms) != len(withoutAlarms)+2 {
 		t.Fatalf("tool count with alarms = %d, without = %d", len(withAlarms), len(withoutAlarms))
+	}
+	if withAlarms[len(withAlarms)-2].Tool.Name != "vsphere_list_triggered_alarms" {
+		t.Fatalf("triggered alarm tool = %q", withAlarms[len(withAlarms)-2].Tool.Name)
 	}
 	if withAlarms[len(withAlarms)-1].Tool.Name != "vsphere_list_alarms" {
 		t.Fatalf("alarm tool = %q", withAlarms[len(withAlarms)-1].Tool.Name)
+	}
+	for _, tool := range withAlarms {
+		if tool.Domain != vsphere.Domain {
+			t.Fatalf("tool %q domain = %q", tool.Tool.Name, tool.Domain)
+		}
 	}
 }

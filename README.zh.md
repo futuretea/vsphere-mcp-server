@@ -48,6 +48,33 @@ make build
 ./bin/vsphere-mcp-server tools call vsphere_list_events --config config.example.yaml --params '{"limit":25}'
 ```
 
+### 查询 VM 监控
+
+以下 JSON 可直接作为 MCP 工具参数，也可传给 `tools call <工具名> --config config.yaml --params '<JSON>'`。
+
+1. 用 `{"kind":"vm","limit":100,"offset":0}` 调用 `vsphere_list_inventory`。每行包含 `type`、`id`、`name`、`path`。每次将 `offset` 增加实际返回行数，直到返回空页。默认覆盖有权访问的所有数据中心；可增加 `datacenter_id`（从 `{"kind":"datacenter"}` 获取）和精确匹配的 `name` 缩小范围。分页按路径、类型、ID 排序；两次调用间库存变化可能使偏移位置改变。
+2. 用 `{"entity_type":"VirtualMachine","entity_id":"vm-123"}` 调用 `vsphere_get_resource`，ID 替换为上一步结果。选取的摘要包含 CPU、内存配置，电源状态、快速统计，以及目标提供的客户机信息。也可使用主机、存储的库存类型读取对应摘要。
+3. 用 `{"entity_type":"VirtualMachine","entity_id":"vm-123","limit":1000}` 调用 `vsphere_query_metrics`，发现可用指标名称、单位和实例。这个旧工具返回指标目录，不含采样值和时间。默认仍最多返回 100 项，上限为 1000。
+4. 调用 `vsphere_query_metric_samples` 读取实际数值：
+
+   ```json
+   {"entity_type":"VirtualMachine","entity_id":"vm-123","metrics":["cpu.usage.average","mem.usage.average"],"max_samples":10}
+   ```
+
+采样结果包含 `entity`、`sample_info`（时间和以秒计的采样间隔），以及 `metrics`（ID、名称、单位、实例、数值和比例）。数值与 `sample_info` 按下标对应，按时间升序排列。显示时将原始数值乘以 `scale`：百分比原始值 `1250`、比例 `0.01` 表示 `12.5%`。无读数时保留空数组，不改写目标返回的数值。
+
+默认读取最近 1 个点，使用目标提供的实时刷新间隔和汇总实例（`""`）；`max_samples` 可设为 1–1000。设备级读数可选择目录中的实例，或传 `"instance":"*"`。磁盘、网络指标随目标和采集级别变化，先查目录中的名称与实例。历史查询需传 RFC3339 格式的 `start_time` / `end_time` 和已启用的 `interval_seconds`；是否有历史数据、保留多久取决于目标采集配置，扩大时间范围不会补出缺失的历史。
+
+### 事件、任务与活动告警
+
+`vsphere_list_events` 和 `vsphere_list_tasks` 支持可选且成对的 `entity_type` / `entity_id`、RFC3339 格式的 `start_time` / `end_time`，以及已有的 `limit`（默认 100，上限 1000）。先筛选，再限制条数。任务从目标的**近期任务缓存**中按排队时间从新到旧选取，时间筛选也使用排队时间；不提供任意历史任务查询。
+
+```json
+{"entity_type":"VirtualMachine","entity_id":"vm-123","start_time":"2026-10-14T00:00:00Z","end_time":"2026-10-14T01:00:00Z","limit":25}
+```
+
+支持告警的目标中，`vsphere_list_alarms` 继续返回告警定义。新增的 `vsphere_list_triggered_alarms` 使用同样的可选对象参数和 `limit`，查询当前告警状态、名称、对象引用、触发时间和确认信息；不传对象参数时查询有权访问的根范围。
+
 ## MCP 传输模式
 
 ### Stdio（默认）
@@ -194,7 +221,7 @@ templates/               # 由初始化脚本复制的 CI 与发布骨架
 
 ## 兼容性与限制
 
-共同查询刻意只使用 vSphere 6.7 已具备的 API。vCenter 专属库存类型为 `datacenter`、`cluster`、`resource_pool`、`folder` 和 `distributed_portgroup`。MCP server 启动时探测事件查询与 `AlarmManager`，仅在目标支持时暴露 `vsphere_list_events` 和 `vsphere_list_alarms`。本地测试使用 govmomi 模拟器，不能代替对已授权真实 6.7、7.0.3 或 8.x 环境的验证。
+共同查询刻意只使用 vSphere 6.7 已具备的 API。vCenter 专属库存类型为 `datacenter`、`cluster`、`resource_pool`、`folder` 和 `distributed_portgroup`。MCP server 启动时探测事件查询与 `AlarmManager`，仅在目标支持时暴露事件和两个告警工具。明确的事件 API 不支持错误会禁用该工具；临时探测错误会携带原始错误让发现过程失败，不再静默隐藏工具。会话失效会报告认证错误，尚未实现自动重连。本地测试使用 govmomi 模拟器，不能代替对已授权真实 6.7、7.0.3 或 8.x 环境的验证。
 
 ## 开发
 

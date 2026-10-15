@@ -96,6 +96,7 @@ func buildToolCatalogForCall(cfg *config.StaticConfig) ([]toolset.ServerTool, fu
 		var err error
 		capabilities, err = service.Capabilities(context.Background())
 		if err != nil {
+			_ = service.Close(context.Background())
 			return nil, func() {}, fmt.Errorf("discover vSphere capabilities: %w", err)
 		}
 	}
